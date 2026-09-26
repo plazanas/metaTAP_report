@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>MetaTAP — Community taxonomic composition</title>
+  <style>
+    :root { --ink: #222; --muted: #888; --line: #e8e8e8; --accent: #0072ce; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { -webkit-text-size-adjust: 100%; }
+    body {
+      background: #fff; color: var(--ink);
+      font-family: "Helvetica Neue", Arial, sans-serif;
+      display: flex; flex-direction: column; align-items: center;
+      padding: 0 16px 40px;
+    }
+    button { font: inherit; }
+
+    /* ---------- Header ---------- */
+    #header {
+      position: sticky; top: 0; z-index: 900;
+      width: calc(100% + 32px); margin: 0 -16px;
+      background: rgba(255,255,255,0.94);
+      backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid #eee;
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: center;
+      gap: 8px 24px; padding: 12px 16px;
+    }
+    #header h1   { font-size: 18px; text-align: center; }
+    #header .sub { font-size: 11px; color: var(--muted); text-align: center; margin-top: 3px; }
+
+    /* ---------- Search + results list ---------- */
+    .search-wrap { position: relative; }
+    #search-box {
+      display: flex; align-items: center; gap: 8px;
+      background: #fff; border: 1px solid #ddd; border-radius: 22px; padding: 6px 14px;
+    }
+    #search-box:focus-within { border-color: var(--accent); }
+    #search-box input { border: none; outline: none; font-size: 14px; width: 200px; background: transparent; color: #222; }
+    #search-box input::-webkit-search-cancel-button { -webkit-appearance: none; display: none; }
+    #search-box input::placeholder { color: #bbb; }
+    #search-box .s-icon  { font-size: 13px; color: #aaa; }
+    #search-clear { border: 0; background: none; font-size: 15px; color: #bbb; cursor: pointer; display: none; line-height: 1; padding: 2px; }
+    #results {
+      position: absolute; top: calc(100% + 6px); left: 0; right: 0; min-width: 280px;
+      background: #fff; border: 1px solid #ddd; border-radius: 12px;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.12);
+      max-height: min(60vh, 400px); overflow-y: auto; display: none; z-index: 950;
+    }
+    .res-head { position: sticky; top: 0; background: #fff; font-size: 11px; color: var(--muted); padding: 8px 12px; border-bottom: 1px solid #f0f0f0; }
+    .res-item {
+      display: flex; align-items: center; gap: 10px; width: 100%;
+      border: 0; border-bottom: 1px solid #f5f5f5; background: none; text-align: left;
+      padding: 10px 12px; cursor: pointer;
+    }
+    .res-item:hover, .res-item:focus, .res-item.active { background: #f1f7fd; outline: none; }
+    .res-dot  { width: 10px; height: 10px; border-radius: 3px; flex-shrink: 0; }
+    .res-main { flex: 1; min-width: 0; }
+    .res-name { font-size: 13px; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .res-meta { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .res-go   { font-size: 12px; font-weight: 600; color: var(--accent); white-space: nowrap; }
+    mark { background: #fff1a8; color: inherit; border-radius: 2px; }
+
+    /* ---------- Breadcrumb trail ---------- */
+    #crumbs {
+      display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 6px;
+      margin-top: 14px; min-height: 28px; scroll-margin-top: 90px;
+    }
+    #crumbs button {
+      border: 0; border-radius: 14px; padding: 5px 11px; font-size: 12px;
+      background: #f1f4f8; color: #334; cursor: pointer;
+    }
+    #crumbs button:hover { background: #e3eaf3; }
+    #crumbs button.current { background: var(--accent); color: #fff; cursor: default; }
+    #crumbs .sep { color: #bbb; font-size: 12px; }
+
+    /* ---------- Chart ---------- */
+    #chart { width: min(100%, 820px); margin-top: 6px; }
+    svg { width: 100%; height: auto; overflow: visible; display: block; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+    @media (hover: hover) { path:hover { filter: brightness(0.93); } }
+    /* hidden arcs must not draw their white outline over the page */
+    path[fill-opacity="0"] { stroke: none; }
+    #hint { display: none; font-size: 12px; color: var(--muted); margin-top: 8px; text-align: center; }
+
+    /* ---------- Info card (selected taxon) ---------- */
+    #info {
+      display: none; width: min(100%, 560px); margin-top: 14px;
+      border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+    }
+    .info-top  { display: flex; justify-content: space-between; align-items: center; }
+    .info-chip { font-size: 11px; font-weight: 600; color: #fff; border-radius: 10px; padding: 2px 9px; }
+    .info-close { border: 0; background: none; font-size: 18px; color: #aaa; cursor: pointer; line-height: 1; padding: 2px 4px; }
+    .info-name { font-size: 17px; font-weight: bold; color: #111; margin-top: 8px; word-break: break-word; }
+    .info-path { font-size: 12px; color: var(--muted); margin-top: 3px; }
+    .info-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+    .info-grid > div { background: #f7f8fa; border-radius: 8px; padding: 8px 10px; }
+    .info-grid .k { font-size: 11px; color: var(--muted); }
+    .info-grid .v { font-size: 15px; font-weight: 600; color: #111; margin-top: 2px; font-variant-numeric: tabular-nums; }
+    .info-foot { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-top: 12px; font-size: 12px; color: var(--muted); }
+    .info-zoom { border: 0; border-radius: 16px; background: var(--accent); color: #fff; padding: 7px 14px; font-size: 13px; cursor: pointer; white-space: nowrap; }
+
+    /* ---------- Legend (click = jump to that domain) ---------- */
+    .legend { display: flex; flex-wrap: wrap; gap: 8px 10px; margin-top: 18px; justify-content: center; }
+    .legend-item {
+      display: flex; align-items: center; gap: 8px; font-size: 15px; color: #444;
+      border: 0; background: none; border-radius: 16px; padding: 5px 10px; cursor: pointer;
+    }
+    .legend-item:hover { background: #f3f4f6; }
+    .legend-item:disabled { cursor: default; opacity: 0.5; background: none; }
+    .legend-swatch { width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0; }
+
+
+    /* ---------- Top-10 bar panels (colours taken from poster panels C and D) ---------- */
+    #tops { display: grid; grid-template-columns: 1fr 1fr; gap: 28px 40px; width: min(100%, 980px); margin-top: 34px; }
+    .top-panel h2 { font-size: 17px; color: #111; margin-bottom: 12px; }
+    .top-row {
+      display: grid; grid-template-columns: minmax(110px, 44%) 1fr; align-items: center; gap: 10px;
+      width: 100%; border: 0; background: none; text-align: left; padding: 3px 4px; border-radius: 6px; cursor: pointer;
+    }
+    .top-row:hover { background: #f4f7f9; }
+    .top-name { font-size: 13px; color: #444; text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .top-panel.species .top-name { font-style: italic; }
+    .top-track { display: flex; align-items: center; gap: 6px; min-width: 0; }
+    .top-bar { height: 22px; border-radius: 0 3px 3px 0; min-width: 2px; flex-shrink: 0; }
+    .top-val { font-size: 11px; color: #666; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .top-note { font-size: 11px; color: var(--muted); margin-top: 8px; }
+    @media (max-width: 760px) {
+      #tops { grid-template-columns: 1fr; }
+      .top-row { grid-template-columns: 1fr; gap: 3px; padding: 5px 4px; }
+      .top-name { text-align: left; font-size: 13px; }
+      .top-bar { height: 16px; }
+    }
+
+    /* ---------- Hover tooltip (mouse only) ---------- */
+    #tooltip {
+      display: none; position: fixed; z-index: 999; pointer-events: none;
+      background: #fff; border: 1px solid #e0e0e0; border-radius: 10px;
+      padding: 12px 15px; box-shadow: 0 6px 20px rgba(0,0,0,0.13);
+      font-size: 12px; line-height: 1.6; max-width: 300px;
+    }
+    #tooltip .tt-name { font-size: 14px; font-weight: bold; color: #111; margin-bottom: 3px; }
+    #tooltip .tt-path { font-size: 11px; color: var(--muted); margin-bottom: 8px; border-bottom: 1px solid #f0f0f0; padding-bottom: 7px; }
+    #tooltip .tt-row  { display: flex; justify-content: space-between; gap: 20px; color: #444; }
+    #tooltip .tt-val  { font-weight: 600; color: #111; }
+    #tooltip .tt-bar  { height: 5px; border-radius: 3px; margin-top: 8px; }
+    @media (hover: none) { #tooltip { display: none !important; } }
+
+    /* ---------- Phones ---------- */
+    @media (max-width: 600px) {
+      body { padding: 0 12px 32px; }
+      #header { width: calc(100% + 24px); margin: 0 -12px; padding: 10px 12px; }
+      #header h1 { font-size: 15px; }
+      #header .sub { display: none; }
+      .header-text, .search-wrap, #search-box { width: 100%; }
+      #search-box input { width: 100%; font-size: 16px; } /* 16px stops iOS auto-zoom */
+      #hint { display: block; }
+      .legend-item { font-size: 14px; }
+      .info-grid .v { font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <div class="header-text">
+      <h1>Community taxonomic composition</h1>
+      <p class="sub">Domain &rarr; Phylum &rarr; Class &rarr; Species &nbsp;&bull;&nbsp; Click a segment to zoom in &nbsp;&bull;&nbsp; Click the centre to zoom out &nbsp;&bull;&nbsp; Search to jump to any taxon</p>
+    </div>
+    <div class="search-wrap">
+      <div id="search-box">
+        <span class="s-icon">&#128269;</span>
+        <input id="search-input" type="search" placeholder="Search any taxon…" autocomplete="off" enterkeyhint="go" aria-label="Search taxon">
+        <button id="search-clear" title="Clear" aria-label="Clear search">&#x2715;</button>
+      </div>
+      <div id="results" role="listbox"></div>
+    </div>
+  </div>
+
+  <nav id="crumbs" aria-label="Zoom level"></nav>
+  <div id="chart"></div>
+  <p id="hint">Tap a segment to zoom in &middot; tap the centre to zoom out</p>
+  <div id="info"></div>
+  <div class="legend" id="legend"></div>
+  <section id="tops"></section>
+  <div id="tooltip"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+  <script>
+// ======================= SETTINGS — edit these =======================
+const datasetName = "cami_3_human_s0";
+const unitLabel   = "reads";            // shown under the total and in the info panels
+// Taxonomy tree: root → Domain → Phylum → Class → Species (value = count)
+const data = {"name":"root","children":[{"name":"Archaea","children":[{"name":"Methanobacteriota","children":[{"name":"Halobacteria","children":[{"name":"Halocatena marina","value":8},{"name":"Haloplanus aerogenes","value":16},{"name":"Salinilacihabitans rarus","value":103}]}]}]},{"name":"Bacteria","children":[{"name":"Actinomycetota","children":[{"name":"Actinomycetes","children":[{"name":"Actinomadura sp. WMMA1423","value":17},{"name":"Actinotalea sp. JY-7876","value":6},{"name":"Aeromicrobium sp. HA","value":15},{"name":"Amycolatopsis rhizosphaerae","value":10},{"name":"Arthrobacter dokdonensis","value":24},{"name":"Arthrobacter sp. QXT-31","value":13},{"name":"Arthrobacter sp. UKPF54-2","value":22},{"name":"Bifidobacterium bifidum","value":15},{"name":"Bifidobacterium breve","value":261},{"name":"Bifidobacterium longum","value":6},{"name":"Cutibacterium modestum","value":8},{"name":"Gulosibacter molinativorax","value":17},{"name":"Microbacterium resistens","value":6},{"name":"Micromonospora maris","value":9},{"name":"Micropruina glycogenica","value":1313},{"name":"Mycolicibacterium moriokaense","value":834},{"name":"Mycolicibacterium smegmatis","value":7},{"name":"Rothia mucilaginosa","value":164},{"name":"Streptomyces castrisilvae","value":865},{"name":"Streptomyces coeruleorubidus","value":35},{"name":"Streptomyces europaeiscabiei","value":350},{"name":"Streptomyces sp. NBC_00588","value":1782},{"name":"Streptomyces yaanensis","value":6}]},{"name":"Coriobacteriia","children":[{"name":"Collinsella aerofaciens","value":6528},{"name":"Collinsella stercoris","value":622},{"name":"Collinsella tanakaei","value":206},{"name":"Enorma phocaeensis","value":134}]}]},{"name":"Bacillota","children":[{"name":"Bacilli","children":[{"name":"Enterococcus faecium","value":18},{"name":"Enterococcus hirae","value":4146},{"name":"Enterococcus lactis","value":12},{"name":"Exiguobacterium marinum","value":24},{"name":"Geobacillus genomosp. 3","value":25},{"name":"Halobacillus salinarum","value":11},{"name":"Lactobacillus paragasseri","value":85970},{"name":"Leuconostoc lactis","value":43},{"name":"Mammaliicoccus lentus","value":25},{"name":"Paenibacillus polymyxa","value":26},{"name":"Staphylococcus epidermidis","value":10},{"name":"Streptococcus salivarius","value":9481},{"name":"Streptococcus suis","value":10},{"name":"Tetragenococcus halophilus","value":5},{"name":"Weissella confusa","value":4308}]},{"name":"Clostridia","children":[{"name":"Agathobacter rectalis","value":15},{"name":"Agathobaculum butyriciproducens","value":186},{"name":"Agathobaculum sp.","value":265},{"name":"Agathobaculum sp. NTUH-O15-33","value":316},{"name":"Allocoprococcus comes","value":3},{"name":"Anaerobutyricum hallii","value":4860},{"name":"Anaerostipes hadrus","value":12361},{"name":"Anaerotignum sp.","value":7},{"name":"Anaerotruncus colihominis","value":40},{"name":"Blautia argi","value":16358},{"name":"Blautia luti","value":859},{"name":"Blautia obeum","value":62094},{"name":"Blautia parvula","value":708},{"name":"Blautia producta","value":323},{"name":"Blautia sp.","value":7},{"name":"Blautia sp. AF26-2","value":5},{"name":"Blautia sp. AF34-10","value":30},{"name":"Blautia sp. AM47-4","value":17},{"name":"Blautia sp. OF09-25XD","value":5},{"name":"Blautia sp. OF11-22","value":6},{"name":"Blautia sp. SC05B48","value":1857},{"name":"Blautia wexlerae","value":9801},{"name":"Butyricicoccus faecihominis","value":141},{"name":"Butyricicoccus sp.","value":36},{"name":"Butyricicoccus sp. AF18-9LB","value":12},{"name":"Butyricicoccus sp. AM05-1","value":2200},{"name":"Butyricicoccus sp. AM27-36","value":9},{"name":"Butyricicoccus sp. AM78-15b2TA","value":35},{"name":"Butyricicoccus sp. GAM44","value":48},{"name":"Butyricicoccus sp. OF10-2","value":138},{"name":"Butyricicoccus sp. OF27-2pH9A","value":15},{"name":"Caproicibacterium argilliputei","value":18},{"name":"Chordicoccus furentiruminis","value":35},{"name":"Christensenella minuta","value":162},{"name":"Claveliimonas bilis","value":7},{"name":"Clostridioides difficile","value":18646},{"name":"Clostridium baratii","value":13792},{"name":"Clostridium bornimense","value":825},{"name":"Clostridium botulinum","value":4387},{"name":"Clostridium chauvoei","value":7431},{"name":"Clostridium intestinale","value":5093},{"name":"Clostridium paraputrificum","value":10},{"name":"Clostridium septicum","value":1210},{"name":"Clostridium sp.","value":5},{"name":"Clostridium sp. AF37-5","value":275},{"name":"Clostridium sp. M62/1","value":39},{"name":"Dorea longicatena","value":3906},{"name":"Dysosmobacter welbionis","value":124},{"name":"Enterocloster bolteae","value":5},{"name":"Eubacterium callanderi","value":8},{"name":"Eubacterium maltosivorans","value":65},{"name":"Faecalibacterium duncaniae","value":2234},{"name":"Faecalibacterium prausnitzii","value":41641},{"name":"Faecalibacterium sp. I2-3-92","value":38},{"name":"Faecalibacterium sp. I3-3-33","value":9178},{"name":"Faecalibacterium sp. I3-3-89","value":215},{"name":"Faecalibacterium sp. I4-1-79","value":28751},{"name":"Faecalibacterium sp. I4-3-84","value":25448},{"name":"Faecalibacterium sp. IP-1-18","value":5497},{"name":"Faecalibacterium sp. IP-3-29","value":1295},{"name":"Faecalibacterium taiwanense","value":22524},{"name":"Faecalibacterium wellingii","value":4923},{"name":"Faecalimonas umbilicata","value":173},{"name":"Filifactor alocis","value":9},{"name":"Fusicatenibacter saccharivorans","value":92},{"name":"Gallintestinimicrobium sp.","value":7},{"name":"Hungatella hathewayi","value":92},{"name":"Intestinibacillus sp. NTUH-41-i26","value":751},{"name":"Intestinimonas butyriciproducens","value":38},{"name":"Lacrimispora saccharolytica","value":21},{"name":"Lawsonibacter asaccharolyticus","value":55},{"name":"Mediterraneibacter gnavus","value":58937},{"name":"Oscillibacter hominis","value":46},{"name":"Oscillibacter sp. PEA192","value":4499},{"name":"Paraclostridium sordellii","value":79},{"name":"Pusillibacter faecalis","value":239},{"name":"Romboutsia hominis","value":5597},{"name":"Romboutsia sp. 1001216sp1","value":378},{"name":"Romboutsia sp. 13368","value":16},{"name":"Romboutsia sp. CE17","value":30},{"name":"Roseburia hominis","value":9248},{"name":"Roseburia intestinalis","value":11},{"name":"Roseburia sp. 831b","value":4047},{"name":"Ruminococcus champanellensis","value":17},{"name":"Ruthenibacterium lactatiformans","value":27},{"name":"Simiaoa sunii","value":12},{"name":"Terrisporobacter petrolearius","value":34},{"name":"Vescimonas coprocola","value":11},{"name":"Vescimonas fastidiosa","value":18},{"name":"Yanshouia hominis","value":7},{"name":"[Clostridium] hylemonae","value":9927},{"name":"[Clostridium] scindens","value":50274},{"name":"[Ruminococcus] lactaris","value":309},{"name":"[Ruminococcus] torques","value":34},{"name":"uncultured Agathobaculum sp.","value":72}]},{"name":"Erysipelotrichia","children":[{"name":"Catenibacterium mitsuokai","value":3891},{"name":"Catenibacterium sp. co_0103","value":14400},{"name":"Thomasclavelia ramosa","value":61}]},{"name":"Negativicutes","children":[{"name":"Pectinatus frisingensis","value":16},{"name":"Pelosinus fermentans","value":1759},{"name":"Phascolarctobacterium succinatutens","value":26348},{"name":"Veillonella parvula","value":168}]}]},{"name":"Bacteroidota","children":[{"name":"Bacteroidia","children":[{"name":"Alistipes indistinctus","value":3712},{"name":"Bacteroides faecis","value":244},{"name":"Bacteroides fragilis","value":1029},{"name":"Bacteroides ovatus","value":18},{"name":"Bacteroides sp. DH3716P","value":31707},{"name":"Bacteroides thetaiotaomicron","value":51962},{"name":"Bacteroides xylanisolvens","value":3743},{"name":"Butyricimonas faecalis","value":23},{"name":"Butyricimonas hominis","value":5},{"name":"Butyricimonas synergistica","value":75},{"name":"Parabacteroides distasonis","value":2824},{"name":"Parabacteroides goldsteinii","value":25},{"name":"Parabacteroides merdae","value":4},{"name":"Parabacteroides sp.","value":18},{"name":"Parabacteroides sp. 20_3","value":8},{"name":"Parabacteroides sp. ZJ-118","value":7},{"name":"Paraprevotella xylaniphila","value":541886},{"name":"Phocaeicola coprophilus","value":11},{"name":"Phocaeicola salanitronis","value":9},{"name":"Phocaeicola vulgatus","value":12},{"name":"Prevotella sp. oral taxon 299","value":6},{"name":"uncultured Draconibacterium sp.","value":11}]},{"name":"Cytophagia","children":[{"name":"Aquirufa nivalisilvae","value":12},{"name":"Hymenobacter jejuensis","value":8}]},{"name":"Flavobacteriia","children":[{"name":"Algibacter luteus","value":23},{"name":"Flavobacterium dauae","value":36},{"name":"Nonlabens dokdonensis","value":15}]}]},{"name":"Campylobacterota","children":[{"name":"Epsilonproteobacteria","children":[{"name":"Campylobacter coli","value":133}]}]},{"name":"Candidatus Bipolaricaulota","children":[{"name":"Candidatus Bipolaricaulia","children":[{"name":"Candidatus Bipolaricaulis anaerobius","value":23}]}]},{"name":"Chlorobiota","children":[{"name":"Chlorobiia","children":[{"name":"Chlorobaculum parvum","value":18}]}]},{"name":"Cyanobacteriota","children":[{"name":"Cyanophyceae","children":[{"name":"Leptolyngbya boryana","value":16}]}]},{"name":"Pseudomonadota","children":[{"name":"Alphaproteobacteria","children":[{"name":"Bradyrhizobium commune","value":388},{"name":"Breoghania sp.","value":1520},{"name":"Erythrobacter sp. KY5","value":28},{"name":"Komagataeibacter oboediens","value":1069},{"name":"Novosphingobium sp. RL4","value":10},{"name":"Pararhizobium qamdonense","value":19},{"name":"Rhizobium sp. CB3090","value":18},{"name":"Sulfitobacter faviae","value":12},{"name":"uncultured Hyphomonas sp.","value":6}]},{"name":"Betaproteobacteria","children":[{"name":"Advenella mimigardefordensis","value":13},{"name":"Burkholderia pseudomallei","value":112},{"name":"Caballeronia insecticola","value":9},{"name":"Duodenibacillus massiliensis","value":12},{"name":"Herbaspirillum rubrisubalbicans","value":15},{"name":"Kerstersia gyiorum","value":9},{"name":"Kingella denitrificans","value":10},{"name":"Massilia forsythiae","value":18},{"name":"Massilia putida","value":6},{"name":"Massilia sp. METH4","value":15},{"name":"Massilia sp. W12","value":135},{"name":"Paraburkholderia acidisoli","value":9},{"name":"Roseateles sp. SL47","value":6},{"name":"Sutterella faecalis","value":39},{"name":"Sutterella megalosphaeroides","value":109},{"name":"Sutterella sp. KLE1602","value":32},{"name":"Sutterella wadsworthensis","value":2690},{"name":"uncultured Propionivibrio sp.","value":14},{"name":"uncultured Sutterella sp.","value":16}]},{"name":"Gammaproteobacteria","children":[{"name":"Aeromonas salmonicida","value":15},{"name":"Agarivorans gilvus","value":11},{"name":"Avibacterium paragallinarum","value":9},{"name":"Citrobacter braakii","value":388},{"name":"Citrobacter freundii","value":10},{"name":"Citrobacter portucalensis","value":6},{"name":"Citrobacter sp. RHB35-C21","value":6},{"name":"Citrobacter sp. RHBSTW-00524","value":34},{"name":"Citrobacter sp. RHBSTW-00570","value":23},{"name":"Citrobacter sp. RHBSTW-00887","value":7},{"name":"Enterobacter kobei","value":6},{"name":"Enterobacter sp. T2","value":11},{"name":"Escherichia coli","value":3553},{"name":"Escherichia fergusonii","value":17},{"name":"Gilliamella apicola","value":18},{"name":"Klebsiella huaxiensis","value":14},{"name":"Marinobacter salarius","value":6},{"name":"Marinobacter shengliensis","value":30},{"name":"Oceanisphaera profunda","value":13},{"name":"Planctobacterium marinum","value":1064},{"name":"Proteus columbae","value":11},{"name":"Pseudomonas putida","value":5},{"name":"Salmonella bongori","value":135},{"name":"Salmonella enterica","value":4506},{"name":"Salmonella sp. SA14318","value":105},{"name":"Shigella dysenteriae","value":4},{"name":"Simiduia agarivorans","value":82},{"name":"Thalassotalea hakodatensis","value":6},{"name":"Vibrio azureus","value":22}]}]},{"name":"Synergistota","children":[{"name":"Synergistia","children":[{"name":"Aminobacterium sp. MB27-C1","value":377}]}]},{"name":"Thermodesulfobacteriota","children":[{"name":"Desulfobacteria","children":[{"name":"uncultured Desulfobacter sp.","value":25}]},{"name":"Desulfovibrionia","children":[{"name":"Bilophila wadsworthia","value":12},{"name":"Desulfovibrio fairfieldensis","value":2129},{"name":"Desulfovibrio sp.","value":19},{"name":"Desulfovibrio sp. 3_1_syn3","value":17},{"name":"Desulfovibrio sp. 6_1_46AFAA","value":2101},{"name":"Nitratidesulfovibrio liaohensis","value":25},{"name":"uncultured Desulfovibrio sp.","value":45}]}]}]},{"name":"Eukaryota","children":[{"name":"Apicomplexa","children":[{"name":"Aconoidasida","children":[{"name":"Babesia bovis","value":11}]}]},{"name":"Arthropoda","children":[{"name":"Arachnida","children":[{"name":"Caerostris extrusa","value":13}]},{"name":"Insecta","children":[{"name":"Exocentrus adspersus","value":5},{"name":"Macrosiphum euphorbiae","value":5}]}]},{"name":"Ascomycota","children":[{"name":"Dothideomycetes","children":[{"name":"Aureobasidium melanogenum","value":18},{"name":"Macrophomina phaseolina","value":6},{"name":"Myriangium duriaei","value":6},{"name":"Paraphaeosphaeria sporulosa","value":7},{"name":"Zopfia rhizophila","value":108}]},{"name":"Eurotiomycetes","children":[{"name":"Aspergillus affinis","value":15},{"name":"Aspergillus alliaceus","value":227},{"name":"Aspergillus ambiguus","value":9},{"name":"Aspergillus awamori","value":188},{"name":"Aspergillus bertholletiae","value":3},{"name":"Aspergillus brasiliensis","value":165},{"name":"Aspergillus brunneoviolaceus","value":86},{"name":"Aspergillus carbonarius","value":13},{"name":"Aspergillus cavernicola","value":7},{"name":"Aspergillus chevalieri","value":6},{"name":"Aspergillus clavatus","value":11},{"name":"Aspergillus costaricensis","value":199},{"name":"Aspergillus cristatus","value":20},{"name":"Aspergillus ellipticus","value":20},{"name":"Aspergillus eucalypticola","value":274},{"name":"Aspergillus felis","value":34},{"name":"Aspergillus fischeri","value":143},{"name":"Aspergillus fumigatus","value":9212},{"name":"Aspergillus glaucus","value":9},{"name":"Aspergillus heteromorphus","value":33},{"name":"Aspergillus hiratsukae","value":226},{"name":"Aspergillus homomorphus","value":7},{"name":"Aspergillus ibericus","value":27},{"name":"Aspergillus indologenus","value":20},{"name":"Aspergillus keveii","value":13},{"name":"Aspergillus lentulus","value":143},{"name":"Aspergillus leporis","value":6},{"name":"Aspergillus luchuensis","value":1159},{"name":"Aspergillus lucknowensis","value":21},{"name":"Aspergillus melleus","value":5},{"name":"Aspergillus multicolor","value":12},{"name":"Aspergillus mulundensis","value":28},{"name":"Aspergillus nanangensis","value":14},{"name":"Aspergillus neoniger","value":319},{"name":"Aspergillus niger","value":1356},{"name":"Aspergillus novofumigatus","value":118},{"name":"Aspergillus ochraceoroseus","value":23},{"name":"Aspergillus oryzae","value":84},{"name":"Aspergillus phoenicis","value":30},{"name":"Aspergillus piperis","value":227},{"name":"Aspergillus pseudocaelatus","value":39},{"name":"Aspergillus pseudodeflectus","value":7},{"name":"Aspergillus sclerotialis","value":20},{"name":"Aspergillus sclerotiicarbonarius","value":22},{"name":"Aspergillus sclerotioniger","value":26},{"name":"Aspergillus sydowii","value":22},{"name":"Aspergillus tanneri","value":5},{"name":"Aspergillus transmontanensis","value":23},{"name":"Aspergillus tubingensis","value":998},{"name":"Aspergillus turcosus","value":6},{"name":"Aspergillus udagawae","value":15},{"name":"Aspergillus undulatus","value":5},{"name":"Aspergillus uvarum","value":10},{"name":"Aspergillus vadensis","value":284},{"name":"Aspergillus versicolor","value":5},{"name":"Aspergillus welwitschiae","value":207},{"name":"Aspergillus wentii","value":18},{"name":"Cyphellophora europaea","value":5},{"name":"Elaphomyces granulatus","value":5},{"name":"Emydomyces testavorans","value":12},{"name":"Exophiala mesophila","value":5},{"name":"Monascus purpureus","value":5},{"name":"Penicillium aethiopicum","value":8},{"name":"Penicillium alfredii","value":25},{"name":"Penicillium angulare","value":114},{"name":"Penicillium antarcticum","value":35},{"name":"Penicillium argentinense","value":6},{"name":"Penicillium arizonense","value":31},{"name":"Penicillium atrosanguineum","value":18},{"name":"Penicillium bovifimosum","value":200},{"name":"Penicillium brasilianum","value":9},{"name":"Penicillium brevicompactum","value":104},{"name":"Penicillium camemberti","value":220},{"name":"Penicillium canariense","value":30},{"name":"Penicillium canescens","value":125},{"name":"Penicillium capsulatum","value":12},{"name":"Penicillium cataractarum","value":7},{"name":"Penicillium cf. griseofulvum","value":54},{"name":"Penicillium cf. viridicatum","value":78},{"name":"Penicillium chermesinum","value":17},{"name":"Penicillium chrysogenum","value":2725},{"name":"Penicillium concentricum","value":56},{"name":"Penicillium coprophilum","value":106},{"name":"Penicillium cosmopolitanum","value":7},{"name":"Penicillium crustosum","value":144},{"name":"Penicillium daleae","value":16},{"name":"Penicillium desertorum","value":858},{"name":"Penicillium diatomitis","value":12},{"name":"Penicillium digitatum","value":181},{"name":"Penicillium egyptiacum","value":623},{"name":"Penicillium expansum","value":87},{"name":"Penicillium fimorum","value":62},{"name":"Penicillium flavigenum","value":227},{"name":"Penicillium freii","value":216},{"name":"Penicillium griseofulvum","value":70},{"name":"Penicillium hetheringtonii","value":8},{"name":"Penicillium hispanicum","value":11},{"name":"Penicillium hordei","value":47},{"name":"Penicillium italicum","value":131},{"name":"Penicillium longicatenatum","value":6},{"name":"Penicillium maclennaniae","value":5},{"name":"Penicillium macrosclerotiorum","value":32},{"name":"Penicillium malachiteum","value":19},{"name":"Penicillium manginii","value":102},{"name":"Penicillium mononematosum","value":996},{"name":"Penicillium nalgiovense","value":1470},{"name":"Penicillium nordicum","value":387},{"name":"Penicillium nucicola","value":36},{"name":"Penicillium olsonii","value":32},{"name":"Penicillium paradoxum","value":179},{"name":"Penicillium polonicum","value":76},{"name":"Penicillium psychrosexuale","value":33},{"name":"Penicillium pulvis","value":12},{"name":"Penicillium riverlandense","value":12},{"name":"Penicillium robsamsonii","value":70},{"name":"Penicillium roqueforti","value":193},{"name":"Penicillium rubens","value":8732},{"name":"Penicillium salamii","value":61},{"name":"Penicillium samsonianum","value":247},{"name":"Penicillium solitum","value":80},{"name":"Penicillium soppii","value":70},{"name":"Penicillium sp.","value":5},{"name":"Penicillium subrubescens","value":23},{"name":"Penicillium taxi","value":7},{"name":"Penicillium thymicola","value":448},{"name":"Penicillium verhagenii","value":20},{"name":"Penicillium verrucosum","value":148},{"name":"Penicillium vulpinum","value":183},{"name":"Penicillium waksmanii","value":9},{"name":"Rasamsonia byssochlamydoides","value":5},{"name":"Rasamsonia emersonii","value":7},{"name":"Talaromyces amestolkiae","value":2041},{"name":"Talaromyces atroroseus","value":20},{"name":"Talaromyces islandicus","value":14},{"name":"Talaromyces marneffei","value":211},{"name":"Talaromyces pinophilus","value":130},{"name":"Talaromyces proteolyticus","value":25},{"name":"Talaromyces rugulosus","value":18},{"name":"Talaromyces stipitatus","value":85},{"name":"Thermoascus crustaceus","value":8}]},{"name":"Lecanoromycetes","children":[{"name":"Lasallia pustulata","value":172}]},{"name":"Leotiomycetes","children":[{"name":"Oidiodendron maius","value":6},{"name":"Pseudogymnoascus destructans","value":7}]},{"name":"Pichiomycetes","children":[{"name":"Ambrosiozyma monospora","value":13},{"name":"Candida albicans","value":25},{"name":"Candida dubliniensis","value":8},{"name":"Candida jiufengensis","value":20},{"name":"Candida margitis","value":284},{"name":"Candida metapsilosis","value":135},{"name":"Candida orthopsilosis","value":111},{"name":"Candida oxycetoniae","value":8},{"name":"Candida parapsilosis","value":53903},{"name":"Candida pseudojiufengensis","value":47},{"name":"Candida theae","value":195},{"name":"Candida verbasci","value":35},{"name":"Lodderomyces beijingensis","value":8},{"name":"Lodderomyces elongisporus","value":57},{"name":"Ogataea philodendri","value":86},{"name":"Ogataea polymorpha","value":18},{"name":"Priceomyces carsonii","value":17},{"name":"Sungouiella intermedia","value":10},{"name":"[Candida] subhashii","value":13}]},{"name":"Saccharomycetes","children":[{"name":"Kluyveromyces lactis","value":14},{"name":"Saccharomyces cerevisiae","value":14},{"name":"Wickerhamomyces pijperi","value":64}]},{"name":"Sordariomycetes","children":[{"name":"Anthostomella pinea","value":11},{"name":"Clonostachys rhizophaga","value":5},{"name":"Colletotrichum incanum","value":5},{"name":"Colletotrichum liriopes","value":14},{"name":"Colletotrichum spaethianum","value":7},{"name":"Colletotrichum tanaceti","value":6},{"name":"Cytospora mali","value":13},{"name":"Diaporthe amygdali","value":12},{"name":"Diaporthe vaccinii","value":15},{"name":"Drechmeria coniospora","value":7},{"name":"Metarhizium rileyi","value":4},{"name":"Neonectria punicea","value":6},{"name":"Podospora didyma","value":5},{"name":"Scopulariopsis brevicaulis","value":8},{"name":"Sodiomyces alcalophilus","value":11},{"name":"Sporothrix epigloea","value":6},{"name":"Trichoderma cornu-damae","value":7},{"name":"Verticillium longisporum","value":6},{"name":"Xylaria bambusicola","value":12}]}]},{"name":"Bacillariophyta","children":[{"name":"Bacillariophyceae","children":[{"name":"Seminavis robusta","value":11}]}]},{"name":"Chordata","children":[{"name":"Amphibia","children":[{"name":"Staurois parvus","value":7}]},{"name":"Aves","children":[{"name":"Pseudopipra pipra","value":13}]},{"name":"Mammalia","children":[{"name":"Homo sapiens","value":40964}]}]},{"name":"Chytridiomycota","children":[{"name":"Chytridiomycetes","children":[{"name":"Batrachochytrium salamandrivorans","value":191}]}]},{"name":"Oomycota","children":[{"name":"Peronosporomycetes","children":[{"name":"Phytophthora pseudosyringae","value":7}]}]},{"name":"Streptophyta","children":[{"name":"Magnoliopsida","children":[{"name":"Carpinus fangiana","value":6},{"name":"Linum trigynum","value":8}]}]},{"name":"Zoopagomycota","children":[{"name":"Harpellomycetes","children":[{"name":"Zancudomyces culisetae","value":8}]}]}]},{"name":"Virus","children":[{"name":"Pisuviricota","children":[{"name":"Pisoniviricetes","children":[{"name":"Husavirus sp.","value":14}]}]},{"name":"Uroviricota","children":[{"name":"Caudoviricetes","children":[{"name":"Alcyoneusvirus K641","value":4113},{"name":"Bimevirus IME346","value":592},{"name":"Ceduovirus cv05802","value":162},{"name":"Clostridium phage phiCD211","value":22},{"name":"Cohcovirus splanchnicus","value":15},{"name":"Dhillonvirus EC115","value":370},{"name":"Dhillonvirus JLBYU37","value":23},{"name":"Dhillonvirus WF1","value":82},{"name":"Dhillonvirus sponge","value":247},{"name":"Epseptimavirus S113","value":2512},{"name":"Escherichia phage NTEC3","value":105},{"name":"Gamaleyavirus APEC7","value":51},{"name":"Henuseptimavirus henu7","value":145},{"name":"Kahnovirus copri","value":28},{"name":"Kayfunavirus F","value":25},{"name":"Kayfunavirus LM33P1","value":42},{"name":"Kuravirus MN05","value":21},{"name":"Kuravirus SU10","value":141},{"name":"Mooglevirus mordin","value":6},{"name":"Muvirus mu","value":1792},{"name":"Oengusvirus oengus","value":3452},{"name":"Phapecoctavirus ESCO5","value":272},{"name":"Salmonella phage 118970_sal4","value":8},{"name":"Skunavirus MV10L","value":61},{"name":"Skunavirus jm2","value":17},{"name":"Skunavirus p272","value":3},{"name":"Skunavirus sv05601","value":165},{"name":"Skunavirus sv16802","value":54},{"name":"Skunavirus sv57001","value":52},{"name":"Skunavirus sv66901","value":42},{"name":"Skunavirus sv79201","value":187},{"name":"Skunavirus sv96401","value":118},{"name":"Skunavirus sv96403","value":35},{"name":"Suseptimavirus 101114UKE3","value":134},{"name":"Suseptimavirus ECBP2","value":174},{"name":"Suseptimavirus IME267","value":17},{"name":"Suseptimavirus SU7","value":501},{"name":"Tequatrovirus kaw","value":33},{"name":"Tequatrovirus pyps2t","value":57},{"name":"Tequintavirus DT5712","value":1299},{"name":"Warwickvirus SLUR29","value":22},{"name":"Wroclawvirus PA5oct","value":229}]}]}]}]};
+// =====================================================================
+
+const RANKS = ["", "Domain", "Phylum", "Class", "Species"];
+const domainColors = {            // same palette as the poster PNG
+  "Archaea":   "#d9640b",
+  "Bacteria":  "#0072ce",
+  "Eukaryota": "#00a651",
+  "Virus":     "#ffc20e"
+};
+const depthBlend = [0, 0.10, 0.30, 0.50, 0.65];   // share of white mixed in, per ring
+
+const fmt    = d3.format(",d");
+const fmtPct = p => p >= 0.01 ? d3.format(".2f")(p) + "%" : (p > 0 ? "<0.01%" : "0%");
+const esc    = s => String(s).replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const Unit   = unitLabel[0].toUpperCase() + unitLabel.slice(1);
+const hoverDevice = window.matchMedia("(hover: hover)").matches;
+
+// ---------- Hierarchy ----------
+const hierarchy = d3.hierarchy(data).sum(d => d.value).sort((a, b) => b.value - a.value);
+const root = d3.partition().size([2 * Math.PI, hierarchy.height + 1])(hierarchy);
+root.each(d => { d.current = d; d.lc = d.data.name.toLowerCase(); });
+
+const domainOf  = d => { let n = d; while (n.depth > 1) n = n.parent; return n; };
+const baseColor = d => d.depth === 0 ? "#999" : (domainColors[domainOf(d).data.name] || "#aaaaaa");
+const nodeColor = d => d3.interpolateRgb(baseColor(d), "#ffffff")(depthBlend[Math.min(d.depth, 4)]);
+const rankOf    = d => d.depth === 0 ? "All" : (RANKS[d.depth] || "");
+const lineage   = d => d.ancestors().reverse().slice(1, -1).map(n => n.data.name).join(" › ");
+
+let focus = root;       // node at the centre
+let selected = null;    // node outlined + shown in the info card
+let zooming = false;    // true while a zoom animation runs
+
+// ---------- Geometry ----------
+const width  = 820;
+const radius = width / 8;               // white centre + 3 equal rings, as in the PNG
+let fontSize = 10, centerSize = 17, countSize = 13;
+
+const arc = d3.arc()
+  .startAngle(d => d.x0).endAngle(d => d.x1)
+  .innerRadius(d => d.y0 * radius)
+  .outerRadius(d => Math.max(d.y0 * radius, d.y1 * radius));
+
+function arcVisible(d)   { return d.y1 <= 4 && d.y0 >= 1 && d.x1 > d.x0; }
+function labelVisible(d) {   // enough room across the slice for one line of text
+  return d.y1 <= 4 && d.y0 >= 1 && (d.x1 - d.x0) * ((d.y0 + d.y1) / 2 * radius) > fontSize * 1.15;
+}
+function labelTransform(d) {
+  const x = (d.x0 + d.x1) / 2 * 180 / Math.PI;
+  const y = (d.y0 + d.y1) / 2 * radius;
+  return `rotate(${x - 90}) translate(${y},0) rotate(${x < 180 ? 0 : 180})`;
+}
+
+// ---------- SVG ----------
+const svg = d3.select("#chart").append("svg")
+  .attr("viewBox", [-width / 2, -width / 2, width, width])
+  .attr("role", "img").attr("aria-label", "Zoomable sunburst of community taxonomic composition");
+const g = svg.append("g");
+
+const path = g.append("g").selectAll("path")
+  .data(root.descendants().slice(1))
+  .join("path")
+    .attr("fill", nodeColor)
+    .attr("stroke", "#fff").attr("stroke-width", 1.5)
+    .attr("fill-opacity", d => arcVisible(d.current) ? 1 : 0)
+    .attr("pointer-events", d => arcVisible(d.current) ? "auto" : "none")
+    .attr("d", d => arc(d.current))
+    .style("cursor", "pointer");
+
+const label = g.append("g")
+  .attr("pointer-events", "none")
+  .attr("text-anchor", "middle")
+  .style("user-select", "none")
+  .selectAll("text")
+  .data(root.descendants().slice(1))
+  .join("text")
+    .attr("dy", "0.35em")
+    .style("fill", "#111")
+    .attr("transform", d => labelTransform(d.current));
+
+const centre = g.append("circle")
+  .datum(root)
+  .attr("r", radius - 1)
+  .attr("fill", "#fff")
+  .attr("pointer-events", "all")
+  .style("cursor", "pointer")
+  .on("click", () => { if (focus.parent) zoomTo(focus.parent); });
+
+const centerName  = g.append("text").attr("text-anchor", "middle").attr("pointer-events", "none")
+  .style("font-weight", "bold").style("fill", "#222");
+const centerCount = g.append("text").attr("text-anchor", "middle").attr("pointer-events", "none")
+  .style("fill", "#777");
+
+// Fit a text element's content into maxWidth (adds "…")
+function fitText(el, full, maxWidth) {
+  el.textContent = full;
+  if (el.getComputedTextLength() <= maxWidth) return;
+  let s = full;
+  while (s.length > 2) {
+    s = s.slice(0, -1);
+    el.textContent = s.trimEnd() + "…";
+    if (el.getComputedTextLength() <= maxWidth) return;
+  }
+}
+
+function updateCentre() {
+  const nameEl = centerName.node(), countEl = centerCount.node();
+  centerName.style("font-size", centerSize + "px").attr("dy", "-0.25em");
+  centerCount.style("font-size", countSize + "px").attr("dy", "1.25em");
+  fitText(nameEl, focus === root ? datasetName : focus.data.name, radius * 1.8);
+  countEl.textContent = fmt(focus.value) + " " + unitLabel;
+}
+
+// Scale text with the screen: on a phone the chart is shrunk, so text gets larger in chart units
+function updateSizes() {
+  const px = document.getElementById("chart").clientWidth || width;
+  const scale = px / width;
+  fontSize   = Math.max(10, Math.min(24, 9.5 / scale));
+  centerSize = Math.max(17, Math.min(34, 14 / scale));
+  countSize  = Math.max(13, Math.min(26, 11 / scale));
+  label.style("font-size", fontSize + "px")
+       .each(function(d) { fitText(this, d.data.name, radius - 10); });
+  updateCentre();
+  applyStyles();
+}
+
+// ---------- Styling: visibility + search + selection ----------
+const searchInput = document.getElementById("search-input");
+const query = () => searchInput.value.trim().toLowerCase();
+
+function applyStyles() {
+  if (zooming) return;              // the end of the zoom re-applies styles
+  const q = query();
+  path.each(function(d) {
+    const el = d3.select(this);
+    if (!arcVisible(d.current)) { el.attr("fill-opacity", 0).attr("pointer-events", "none"); return; }
+    el.attr("pointer-events", "auto");
+    let op = 1, stroke = "#fff", sw = 1.5, raise = false;
+    if (q) {
+      const direct = d.lc.includes(q);
+      const inside = !direct && d.descendants().some(n => n !== d && n.lc.includes(q));
+      if (direct)      { stroke = "#222"; sw = 2; raise = true; }
+      else if (inside) { op = 0.55; }
+      else             { op = 0.12; }
+    }
+    if (d === selected) { op = 1; stroke = "#111"; sw = 3; raise = true; }
+    el.attr("fill-opacity", op).attr("stroke", stroke).attr("stroke-width", sw);
+    if (raise) this.parentNode.appendChild(this);     // keep outline on top of neighbours
+  });
+  label.attr("fill-opacity", d => +labelVisible(d.current));
+}
+
+// ---------- Zoom ----------
+function zoomTo(p) {
+  hideTooltip();
+  focus = p;
+  centre.datum(p.parent || root);
+  updateCentre();
+  renderCrumbs();
+
+  root.each(d => d.target = {
+    x0: Math.max(0, Math.min(1, (d.x0 - p.x0) / (p.x1 - p.x0))) * 2 * Math.PI,
+    x1: Math.max(0, Math.min(1, (d.x1 - p.x0) / (p.x1 - p.x0))) * 2 * Math.PI,
+    y0: Math.max(0, d.y0 - p.depth),
+    y1: Math.max(0, d.y1 - p.depth)
+  });
+
+  zooming = true;
+  const done = () => {           // snap everything to its final position, then restyle
+    zooming = false;
+    root.each(d => { if (d.target) d.current = d.target; });
+    path.attr("d", d => arc(d.current));
+    label.attr("transform", d => labelTransform(d.current));
+    applyStyles();
+  };
+  const t = g.transition().duration(750).on("end", done).on("interrupt", () => { zooming = false; });
+
+  path.transition(t)
+    .tween("data", d => { const i = d3.interpolate(d.current, d.target); return t => d.current = i(t); })
+    .filter(function(d) { return +this.getAttribute("fill-opacity") || arcVisible(d.target); })
+    .attr("fill-opacity", d => arcVisible(d.target) ? 1 : 0)
+    .attr("pointer-events", d => arcVisible(d.target) ? "auto" : "none")
+    .attrTween("d", d => () => arc(d.current));
+
+  label
+    .filter(function(d) { return +this.getAttribute("fill-opacity") || labelVisible(d.target); })
+    .transition(t)
+    .attr("fill-opacity", d => +labelVisible(d.target))
+    .attrTween("transform", d => () => labelTransform(d.current));
+}
+
+// Jump straight to any taxon (from search results or the legend)
+function jumpTo(node) {
+  selected = node;
+  zoomTo(node.children ? node : node.parent);   // species: show it inside its class
+  showInfo(node);
+  closeResults();
+  searchInput.blur();
+  document.getElementById("crumbs").scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+// ---------- Breadcrumb trail ----------
+function renderCrumbs() {
+  const nav = document.getElementById("crumbs");
+  nav.innerHTML = "";
+  focus.ancestors().reverse().forEach((n, i, arr) => {
+    if (i) nav.insertAdjacentHTML("beforeend", '<span class="sep">›</span>');
+    const b = document.createElement("button");
+    b.textContent = n === root ? "All" : n.data.name;
+    if (i === arr.length - 1) { b.className = "current"; b.setAttribute("aria-current", "true"); }
+    else b.onclick = () => zoomTo(n);
+    nav.appendChild(b);
+  });
+}
+
+// ---------- Info card ----------
+const info = document.getElementById("info");
+function showInfo(d) {
+  selected = d;
+  const pctAll = d.value / root.value * 100;
+  const pctPar = d.parent && d.parent !== root ? d.value / d.parent.value * 100 : null;
+  const nSpecies = d.leaves().length;
+  const canZoom = d.children && d !== focus;
+  info.innerHTML = `
+    <div class="info-top">
+      <span class="info-chip" style="background:${baseColor(d)}">${rankOf(d)}</span>
+      <button class="info-close" aria-label="Close">&times;</button>
+    </div>
+    <div class="info-name">${esc(d.data.name)}</div>
+    <div class="info-path">${esc(lineage(d)) || "&nbsp;"}</div>
+    <div class="info-grid">
+      <div><div class="k">${Unit}</div><div class="v">${fmt(d.value)}</div></div>
+      <div><div class="k">% of all</div><div class="v">${fmtPct(pctAll)}</div></div>
+      <div><div class="k">${pctPar === null ? "Rank" : "% of " + esc(d.parent.data.name)}</div>
+           <div class="v">${pctPar === null ? rankOf(d) : fmtPct(pctPar)}</div></div>
+    </div>
+    ${d.children ? `<div class="info-foot">
+      <span>${fmt(nSpecies)} species</span>
+      ${canZoom ? `<button class="info-zoom">Zoom into ${esc(d.data.name)} ›</button>` : ""}
+    </div>` : ""}`;
+  info.style.display = "block";
+  info.querySelector(".info-close").onclick = () => { info.style.display = "none"; selected = null; applyStyles(); };
+  const z = info.querySelector(".info-zoom");
+  if (z) z.onclick = () => { zoomTo(d); showInfo(d); };
+  applyStyles();
+}
+
+// ---------- Mouse / touch on segments ----------
+const tooltip = document.getElementById("tooltip");
+function hideTooltip() { tooltip.style.display = "none"; }
+path
+  .on("mousemove", (event, d) => {
+    if (!hoverDevice) return;
+    const pct = d.value / root.value * 100;
+    tooltip.style.display = "block";
+    tooltip.style.left = Math.min(event.clientX + 16, window.innerWidth - 310) + "px";
+    tooltip.style.top  = (event.clientY - 10) + "px";
+    tooltip.innerHTML = `
+      <div class="tt-name">${esc(d.data.name)}</div>
+      <div class="tt-path">${rankOf(d)}${lineage(d) ? " · " + esc(lineage(d)) : ""}</div>
+      <div class="tt-row"><span>${Unit}</span><span class="tt-val">${fmt(d.value)}</span></div>
+      <div class="tt-row"><span>% of total</span><span class="tt-val">${fmtPct(pct)}</span></div>
+      <div class="tt-bar" style="width:${Math.min(pct * 2, 100)}%; background:${baseColor(d)}"></div>`;
+  })
+  .on("mouseleave", hideTooltip)
+  .on("click", (event, d) => {
+    if (d.children) zoomTo(d);
+    showInfo(d);
+  });
+
+// ---------- Search with jump-to results ----------
+const results     = document.getElementById("results");
+const searchClear = document.getElementById("search-clear");
+const allNodes    = root.descendants().slice(1);
+const MAX_RESULTS = 50;
+let activeIdx = -1;
+
+function highlight(name, q) {
+  const i = name.toLowerCase().indexOf(q);
+  if (i < 0) return esc(name);
+  return esc(name.slice(0, i)) + "<mark>" + esc(name.slice(i, i + q.length)) + "</mark>" + esc(name.slice(i + q.length));
+}
+function closeResults() { results.style.display = "none"; activeIdx = -1; }
+
+function runSearch() {
+  const q = query();
+  searchClear.style.display = q ? "block" : "none";
+  applyStyles();
+  if (!q) { closeResults(); return; }
+
+  const hits = allNodes.filter(d => d.lc.includes(q))
+    .sort((a, b) => a.depth - b.depth || b.value - a.value);
+  const shown = hits.slice(0, MAX_RESULTS);
+  results.innerHTML =
+    `<div class="res-head">${hits.length ? `${hits.length} match${hits.length > 1 ? "es" : ""}` +
+      (hits.length > MAX_RESULTS ? ` · showing ${MAX_RESULTS}` : "") + " · tap one to show it in the chart"
+      : "No matches"}</div>` +
+    shown.map((d, i) => `
+      <button class="res-item" role="option" data-i="${i}">
+        <span class="res-dot" style="background:${nodeColor(d)}; box-shadow: inset 0 0 0 1px ${baseColor(d)}"></span>
+        <span class="res-main">
+          <div class="res-name">${highlight(d.data.name, q)}</div>
+          <div class="res-meta">${rankOf(d)} · ${fmt(d.value)} ${unitLabel}${d.depth > 1 ? " · " + esc(lineage(d)) : ""}</div>
+        </span>
+        <span class="res-go">Show ›</span>
+      </button>`).join("");
+  results.querySelectorAll(".res-item").forEach(b => b.onclick = () => jumpTo(shown[+b.dataset.i]));
+  results.style.display = "block";
+  activeIdx = -1;
+}
+
+searchInput.addEventListener("input", runSearch);
+searchInput.addEventListener("focus", () => { if (query()) runSearch(); });
+searchInput.addEventListener("keydown", e => {
+  const items = [...results.querySelectorAll(".res-item")];
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (!items.length) return;
+    e.preventDefault();
+    activeIdx = (activeIdx + (e.key === "ArrowDown" ? 1 : -1) + items.length) % items.length;
+    items.forEach((el, i) => el.classList.toggle("active", i === activeIdx));
+    items[activeIdx].scrollIntoView({ block: "nearest" });
+  } else if (e.key === "Enter") {
+    if (items.length) items[Math.max(activeIdx, 0)].click();
+  } else if (e.key === "Escape") {
+    closeResults();
+  }
+});
+searchClear.addEventListener("click", () => { searchInput.value = ""; runSearch(); searchInput.focus(); });
+document.addEventListener("pointerdown", e => { if (!e.target.closest(".search-wrap")) closeResults(); });
+
+// ---------- Legend (click = jump to domain) ----------
+const legend = document.getElementById("legend");
+Object.keys(domainColors).forEach(name => {
+  const node = root.children && root.children.find(c => c.data.name === name);
+  const b = document.createElement("button");
+  b.className = "legend-item";
+  b.innerHTML = `<span class="legend-swatch" style="background:${domainColors[name]}"></span>${name}`;
+  if (node) { b.title = `Show ${name}`; b.onclick = () => jumpTo(node); }
+  else b.disabled = true;
+  legend.appendChild(b);
+});
+
+
+// ---------- Top-10 phyla / species (click a bar = show it in the sunburst) ----------
+const PHYLA_COLORS   = ["#0c4b6f","#155a79","#226885","#30788a","#3a8795","#4996a0","#54a6a7","#62b5b1","#70c4bb","#7fd3c4"];
+const SPECIES_COLORS = ["#015e53","#0f6b5e","#1c786b","#2a8478","#379283","#479f91","#54ac9e","#62b9a9","#70c7b7","#7fd3c4"];
+const fmtShort = v => v >= 1e6 ? d3.format(".2~f")(v / 1e6) + "M" : v >= 1e3 ? d3.format(".3~s")(v).replace("k", "K") : String(v);
+
+function topPanel(title, cls, nodes, colors) {
+  const max = nodes[0] ? nodes[0].value : 1;
+  const panel = document.createElement("div");
+  panel.className = "top-panel " + cls;
+  panel.innerHTML = `<h2>${title}</h2>`;
+  nodes.forEach((d, i) => {
+    const b = document.createElement("button");
+    b.className = "top-row";
+    b.title = `${d.data.name}: ${fmt(d.value)} ${unitLabel} (${fmtPct(d.value / root.value * 100)}) — click to show in chart`;
+    b.innerHTML = `
+      <span class="top-name">${esc(d.data.name)}</span>
+      <span class="top-track">
+        <span class="top-bar" style="width:calc((100% - 52px) * ${d.value / max}); background:${colors[i]}"></span>
+        <span class="top-val">${fmtShort(d.value)}</span>
+      </span>`;
+    b.onclick = () => jumpTo(d);
+    panel.appendChild(b);
+  });
+  return panel;
+}
+const top10 = depth => root.descendants().filter(d => d.depth === depth).sort((a, b) => b.value - a.value).slice(0, 10);
+const tops = document.getElementById("tops");
+tops.appendChild(topPanel("Top 10 phyla",   "phyla",   top10(2), PHYLA_COLORS));
+tops.appendChild(topPanel("Top 10 species", "species", top10(4), SPECIES_COLORS));
+
+// ---------- Start ----------
+renderCrumbs();
+updateSizes();
+let rt; window.addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(updateSizes, 150); });
+  </script>
+</body>
+</html>
